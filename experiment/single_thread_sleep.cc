@@ -6,11 +6,14 @@
 #include <chrono> 
 #include <math.h>
 #include <ratio>
-
+#include <sys/types.h>
+#include <unistd.h>
 using namespace std;
 
 
 int main(){
+
+cout<<"pid: "<<getpid()<<endl;
 
 vector<double> array(1024*10, 40);
 
