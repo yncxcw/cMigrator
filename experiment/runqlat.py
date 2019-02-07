@@ -137,7 +137,7 @@ int trace_run(struct pt_regs *ctx, struct task_struct *prev)
 # code substitutions
 if args.pid:
     # pid from userspace point of view is thread group from kernel pov
-    bpf_text = bpf_text.replace('FILTER', 'tgid != %s' % args.pid)
+    bpf_text = bpf_text.replace('FILTER', 'pid != %s' % args.pid)
 else:
     bpf_text = bpf_text.replace('FILTER', '0')
 if args.milliseconds:
