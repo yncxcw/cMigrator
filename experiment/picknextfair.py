@@ -2,7 +2,6 @@
 #
 # Trace the pick_next_fair() in cfs scheduler on a specific CPU to understand 
 # the process scheduling. 
-#           For Linux, uses BCC, eBPF. Embedded C.
 #
 # USAGE: picknextfair.py [-c cpu]
 #
@@ -23,9 +22,8 @@ parser = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog=examples)
 parser.add_argument("-c", "--cpu",
-    help="the cpu to trace")
+    help="the cpu to trace", default="0")
 args = parser.parse_args()
-debug = 0
 
 # define BPF program
 bpf_text = """
@@ -36,7 +34,6 @@ bpf_text = """
 
 
 struct rq; // forward declaration
-struct rq_flags; //forward declaration
 
 struct val_t {
    pid_t pid;
@@ -46,10 +43,8 @@ struct val_t {
 
 BPF_PERF_OUTPUT(events);
 
-int kprobe__pick_next_fair(struct pt_regs *ctx, struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
+int kprobe_pick_next_fair(struct pt_regs *ctx, struct rq *rq, struct task_struct *prev)
 {
-    if(FILTER1)
-        return 0;
 
     struct val_t data = {};
     data.pid = prev->pid;
@@ -59,17 +54,15 @@ int kprobe__pick_next_fair(struct pt_regs *ctx, struct rq *rq, struct task_struc
     
     return 0;
 };
-/*
-int kproberet__pick_next_fair(struct pt_regs *ctx)
+
+int kproberet_pick_next_fair(struct pt_regs *ctx)
 {
     struct task_struct* next = (struct task_struct*)PT_REGS_RC(ctx);
 
-    int pid; 
-    u64 vruntime;
+    pid_t pid=0; 
+    u64 vruntime=0;
     bpf_probe_read(&pid, sizeof(pid_t), &next->pid);
     bpf_probe_read(&vruntime, sizeof(u64), &next->se.vruntime);
-    if(FILTER2)
-        return 0;
 
     struct val_t data = {};
     data.pid = pid;
@@ -79,30 +72,13 @@ int kproberet__pick_next_fair(struct pt_regs *ctx)
 
     return 0;
 }
-*/
 """
-if args.cpu:
-    #bpf_text = bpf_text.replace('FILTER1',
-    #    'rqq->cpu != %s' % args.cpu)
-    
-    bpf_text = bpf_text.replace('FILTER1', 
-        'task_cpu(prev) != %s' % args.cpu)
 
-
-    bpf_text = bpf_text.replace('FILTER2', 
-        'task_cpu(next) != %s' % args.cpu)
-
-else:
-    print("cpu must be set")
 
 # initialize BPF
 b = BPF(text=bpf_text)
-kill_fnname = b.get_syscall_fnname("kill")
-b.attach_kprobe(event="pick_next_task_fair", fn_name="kprobe__pick_next_fair")
-b.attach_kretprobe(event="pick_next_task_fair", fn_name="kproberet__pick_next_fair")
-
-
-TASK_COMM_LEN = 16    # linux/sched.h
+b.attach_kprobe(event="pick_next_task_fair", fn_name="kprobe_pick_next_fair")
+# b.attach_kretprobe(event="pick_next_task_fair", fn_name="kproberet_pick_next_fair")
 
 class Data(ct.Structure):
     _fields_ = [
@@ -112,15 +88,16 @@ class Data(ct.Structure):
     ]
 
 # header
-print("%-9s %-6s %-6s %-4s" % (
-    "TIME", "PID", "vruntime", "type"))
+print("%-9s %-6s %-6s %-4s %-4s" % (
+    "TIME", "PID", "vruntime", "type", "cpu"))
 
 # process event
 def print_event(cpu, data, size):
     event = ct.cast(data, ct.POINTER(Data)).contents
 
-    printb(b"%-9s %-6d %-6d %d" % (strftime("%H:%M:%S").encode('ascii'),
-        event.pid, event.vruntime, event.type))
+    if cpu == int(args.cpu):
+        printb(b"%-9s %-6d %-6d %d %d" % (strftime("%H:%M:%S").encode('ascii'),
+            event.pid, event.vruntime, event.type, cpu))
 
 # loop with callback to print_event
 b["events"].open_perf_buffer(print_event)
