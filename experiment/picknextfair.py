@@ -37,6 +37,10 @@ struct rq; // forward declaration
 
 struct val_t {
    pid_t pid;
+   unsigned long long load_sum;
+   unsigned long long util_sum;
+   unsigned long long load_avg;
+   unsigned long long util_avg; 
    u64 vruntime;
    int type;       // Note, 0 for previous task, 1 for next task.
 };
@@ -48,6 +52,10 @@ int kprobe_pick_next_fair(struct pt_regs *ctx, struct rq *rq, struct task_struct
 
     struct val_t data = {};
     data.pid = prev->pid;
+    data.load_sum = prev->se.avg.load_sum;
+    data.util_sum = prev->se.avg.util_sum;
+    data.load_avg = prev->se.avg.load_avg;
+    data.util_avg = prev->se.avg.util_avg;
     data.vruntime = prev->se.vruntime;
     data.type = 0;
     events.perf_submit(ctx, &data, sizeof(data));    
@@ -66,6 +74,11 @@ int kproberet_pick_next_fair(struct pt_regs *ctx)
 
     struct val_t data = {};
     data.pid = pid;
+    data.load_sum = 0;
+    data.util_sum = 0;
+    data.load_avg = 0;
+    data.util_avg = 0;
+
     data.vruntime = vruntime;
     data.type = 1;
     events.perf_submit(ctx, &data, sizeof(data));
@@ -83,6 +96,10 @@ b.attach_kprobe(event="pick_next_task_fair", fn_name="kprobe_pick_next_fair")
 class Data(ct.Structure):
     _fields_ = [
         ("pid", ct.c_int),
+        ("load_sum", ct.c_ulonglong),
+        ("util_sum", ct.c_ulonglong),
+        ("load_avg", ct.c_ulonglong),
+        ("util_avg", ct.c_ulonglong),
         ("vruntime", ct.c_ulonglong),
         ("type", ct.c_int)
     ]
@@ -95,9 +112,9 @@ print("%-9s %-6s %-6s %-4s %-4s" % (
 def print_event(cpu, data, size):
     event = ct.cast(data, ct.POINTER(Data)).contents
 
-    if cpu == int(args.cpu):
-        printb(b"%-9s %-6d %-6d %d %d" % (strftime("%H:%M:%S").encode('ascii'),
-            event.pid, event.vruntime, event.type, cpu))
+    if cpu == int(args.cpu) and event.type == 0:
+        printb(b"%-9s %d %d %d %d %d %d" % (strftime("%H:%M:%S").encode('ascii'),
+            event.pid, event.vruntime, event.load_sum, event.util_sum, event.load_avg, event.util_avg))
 
 # loop with callback to print_event
 b["events"].open_perf_buffer(print_event)
