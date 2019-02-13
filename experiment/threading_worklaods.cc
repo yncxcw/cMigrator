@@ -12,10 +12,10 @@
 using namespace std;
 
 
-void compute_function(int compute){
+void compute_function(double compute){
 
     //use linear regression to get # of interatations to cosumes the compute time.
-    int iterate = compute;
+    int iterate = (compute - 0.333891175735)/0.00116243322436;
     //!0k x sizeof(double) = 800k data
     std::vector<double> array(1024*100, 40.0);      
     for(int i=0; i<iterate; i++){
@@ -30,7 +30,8 @@ int main(){
 cout<<"pid: "<<getpid()<<endl;
 
 
-long compute_time, thread_count, iteration_count;
+double compute_time;
+long thread_count, iteration_count;
 
 cout<<"input compute time (s), thread count and iteration count. "<<endl;
 cin>>compute_time>>thread_count>>iteration_count;
