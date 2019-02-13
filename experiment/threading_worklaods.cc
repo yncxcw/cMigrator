@@ -1,4 +1,4 @@
-/* A single thread app that runs and sleep */
+/* A multi threads app that computes and sync */
 
 #include <iostream>
 #include <vector>
@@ -9,11 +9,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <thread>
+#include <sched.h>
 using namespace std;
 
 
-void compute_function(double compute){
+void compute_function(double compute, int thread_index){
 
+    std::cout<<thread_index<<" thread cpu"<<sched_getcpu()<<std::endl;
+    auto begin = std::chrono::high_resolution_clock::now();
     //use linear regression to get # of interatations to cosumes the compute time.
     int iterate = (compute - 0.333891175735)/0.00116243322436;
     //!0k x sizeof(double) = 800k data
@@ -21,7 +24,12 @@ void compute_function(double compute){
     for(int i=0; i<iterate; i++){
         for(int j=0; j<array.size(); j++)
             array[j] = sqrt(array[j])*sqrt(j);
-    }    
+    }
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin);
+    std::cout<<thread_index<<" thread cpu"<<sched_getcpu()<<" "<<duration.count()*1.0/1000<<" seconds"<<std::endl; 
+
+    
 }
 
 
@@ -44,7 +52,7 @@ for(int i=0; i<iteration_count; i++)
     vector<std::thread> threads;
     auto begin = std::chrono::high_resolution_clock::now();
     for(int j=0; j<thread_count; j++){
-        threads.push_back(std::thread(compute_function, compute_time));    
+        threads.push_back(std::thread(compute_function, compute_time, j));    
     }
     for(int j=0; j<thread_count; j++){
         threads[j].join();
