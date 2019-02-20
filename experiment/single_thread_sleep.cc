@@ -8,10 +8,19 @@
 #include <ratio>
 #include <sys/types.h>
 #include <unistd.h>
+#include <sched.h>
 using namespace std;
 
 
 int main(){
+
+
+struct sched_param param;
+param.sched_priority = 99;
+if (sched_setscheduler(0, SCHED_FIFO, & param) != 0) {
+    std::cout<<"sched_setscheduler error";
+    exit(EXIT_FAILURE);  
+}
 
 cout<<"pid: "<<getpid()<<endl;
 
