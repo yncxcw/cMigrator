@@ -19,10 +19,10 @@ int   pin_cpu      = 0;     // the first cpu to pin the thread
 // initialize loads
 std::vector<std::pair<unsigned long, double>> 
     loads = {
-        std::pair<unsigned long, double>(10, 0.3),
-        std::pair<unsigned long, double>(10, 0.95),
-        std::pair<unsigned long, double>(10, 0.1),
-        std::pair<unsigned long, double>(10, 0.95)
+        std::pair<unsigned long, double>(30, 0.3),
+        std::pair<unsigned long, double>(30, 0.95),
+        std::pair<unsigned long, double>(30, 0.1),
+        std::pair<unsigned long, double>(30, 0.95)
     };
 
 
