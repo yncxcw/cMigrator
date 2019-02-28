@@ -3,7 +3,7 @@ from time import sleep
 import numpy as np
 import sys
 
-cpu_allowed = [] # ["cpu0", "cpu1", "cpu2", "cpu3", "cpu4"] 
+cpu_allowed = range(32) #[0, 1, 2, 3] 
 
 
 def save_np_array(path, data):
@@ -18,10 +18,13 @@ if __name__=="__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "v":
         import matplotlib.pyplot as plt
 
-        load_data = load_np_array("mapl")
-        rque_data = load_np_array("mapr")
         
+        load_data = np.array([load_np_array("mapl")[cpu_index] for cpu_index in cpu_allowed])
+        rque_data = np.array([load_np_array("mapr")[cpu_index] for cpu_index in cpu_allowed])
         
+        print(rque_data.shape)
+        print(load_data.shape)
+
         fig = plt.figure()
         max_load_data =  np.amax(load_data)
         median_load_data = np.median(load_data)
@@ -30,15 +33,16 @@ if __name__=="__main__":
         ax1 = fig.add_subplot(121)
         im1 = ax1.imshow(load_data, cmap=plt.cm.hot_r, aspect='auto')
         plt.colorbar(im1) 
-        
+        # ax1.plot(range(len(rque_data[0])), rque_data[0])
+        # ax1.plot(range(len(rque_data[1])), rque_data[1])
+
         max_rque_data = np.amax(rque_data)
         median_rque_data = np.median(rque_data)
-        
-        print(max_load_data, max_rque_data)
-        print(median_load_data, median_rque_data)
+       
         ax2 = fig.add_subplot(122)
         im2 = ax2.imshow(rque_data, cmap=plt.cm.hot_r, aspect='auto')
-        plt.colorbar(im2) 
+        plt.colorbar(im2)
+
         plt.show()
          
 
@@ -71,11 +75,9 @@ if __name__=="__main__":
             except KeyboardInterrupt:
                 print("inspection is over.")
                 break;
-        if len(cpu_allowed) == 0:
-            cpu_allowed = load_map.keys()
 
-        load_data = np.array([load_map[cpu] for cpu in cpu_allowed])
-        rque_data = np.array([rque_map[cpu] for cpu in cpu_allowed])
+        load_data = np.array([load_map[cpu] for cpu in ["cpu"+str(i) for i in range(32)])
+        rque_data = np.array([rque_map[cpu] for cpu in ["cpu"+str(i) for i in range(32)])
 
         save_np_array("mapl", load_data)
         save_np_array("mapr", rque_data)
