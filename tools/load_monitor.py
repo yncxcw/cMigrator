@@ -76,8 +76,9 @@ if __name__=="__main__":
                 print("inspection is over.")
                 break;
 
-        load_data = np.array([load_map[cpu] for cpu in ["cpu"+str(i) for i in range(32)])
-        rque_data = np.array([rque_map[cpu] for cpu in ["cpu"+str(i) for i in range(32)])
+        cpu_count = len(load_map)
+        load_data = np.array([load_map[cpu] for cpu in ["cpu"+str(i) for i in range(cpu_count)]])
+        rque_data = np.array([rque_map[cpu] for cpu in ["cpu"+str(i) for i in range(cpu_count)]])
 
         save_np_array("mapl", load_data)
         save_np_array("mapr", rque_data)
