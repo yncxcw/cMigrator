@@ -1,7 +1,6 @@
 # This tool monitors the load and queue length of each runq. Needs the kernel monification.
 from time import sleep
 import numpy as np
-import matplotlib.pyplot as plt
 import sys
 
 cpu_allowed = [] # ["cpu0", "cpu1", "cpu2", "cpu3", "cpu4"] 
@@ -15,9 +14,10 @@ def load_np_array(path):
 
 if __name__=="__main__":
 
-    print sys.argv
 
     if len(sys.argv) > 1 and sys.argv[1] == "v":
+        import matplotlib.pyplot as plt
+
         load_data = load_np_array("mapl")
         rque_data = load_np_array("mapr")
         
