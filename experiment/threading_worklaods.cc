@@ -20,14 +20,19 @@ void compute_function(double compute, int thread_index){
     //use linear regression to get # of interatations to cosumes the compute time.
     int iterate = (compute - 0.333891175735)/0.00116243322436;
     //!0k x sizeof(double) = 800k data
-    std::vector<double> array(1024*100, 40.0);      
+    std::vector<double> array(1024*100, 40.0);
+    int count = 0;
     for(int i=0; i<iterate; i++){
         for(int j=0; j<array.size(); j++)
             array[j] = sqrt(array[j])*sqrt(j);
+	if(i == (count+1) * iterate/10){
+	    std::cout<<thread_index<<" thread cpu"<<sched_getcpu()<<std::endl;
+	    count++;
+	}	
     }
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin);
-    std::cout<<thread_index<<" thread cpu"<<sched_getcpu()<<" "<<duration.count()*1.0/1000<<" seconds"<<std::endl; 
+    std::cout<<thread_index<<" thread cpu "<<sched_getcpu()<<" "<<duration.count()*1.0/1000<<" seconds"<<std::endl; 
 
     
 }
@@ -38,11 +43,9 @@ int main(){
 cout<<"pid: "<<getpid()<<endl;
 
 
-double compute_time;
-long thread_count, iteration_count;
-
-cout<<"input compute time (s), thread count and iteration count. "<<endl;
-cin>>compute_time>>thread_count>>iteration_count;
+double compute_time    = 60;
+long   thread_count    = 4;
+long   iteration_count = 1;
 
 
 for(int i=0; i<iteration_count; i++)

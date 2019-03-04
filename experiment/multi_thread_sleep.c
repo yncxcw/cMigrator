@@ -13,16 +13,14 @@ using namespace std;
 
 
 // benchmark configuration.
-int   threads_count= 10;    // threads count
+int   threads_count= 2;    // threads count
 bool  rt_scheduler = true;  // use rt scheduler
-int   pin_cpu      = 0;     // the first cpu to pin the thread
+int   pin_cpu      = 1;     // the first cpu to pin the thread
 // initialize loads
 std::vector<std::pair<unsigned long, double>> 
     loads = {
-        std::pair<unsigned long, double>(30, 0.3),
-        std::pair<unsigned long, double>(30, 0.95),
-        std::pair<unsigned long, double>(30, 0.1),
-        std::pair<unsigned long, double>(30, 0.95)
+        std::pair<unsigned long, double>(3600, 0.95),
+        std::pair<unsigned long, double>(60, 0.95)
     };
 
 
@@ -94,13 +92,14 @@ int main(){
 vector<std::thread> threads;
 
 std::cout<<"start "<<std::endl;
+int numCPU = sysconf(_SC_NPROCESSORS_ONLN);
 
 for(int i=0; i < threads_count; i++){
     threads.push_back(std::thread(run_and_sleep, i));
     if(pin_cpu >= 0){
         cpu_set_t cpuset;
         CPU_ZERO(&cpuset);
-        CPU_SET(i, &cpuset);
+        CPU_SET((i+pin_cpu)%numCPU, &cpuset);
         int rc = pthread_setaffinity_np(threads[i].native_handle(),
                                         sizeof(cpu_set_t), &cpuset);
         if (rc != 0) {
