@@ -19,5 +19,7 @@ if __name__=="__main__":
             X.append(X[-1]+0.5)
 
     print len(X), len(Y)
-    plt.plot(X, Y)
+    ax = plt.subplot(111)
+    ax.plot(X, Y)
+    ax.set_ylim(-1, 20)
     plt.show() 
