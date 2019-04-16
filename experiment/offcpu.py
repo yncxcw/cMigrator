@@ -54,6 +54,8 @@ typedef struct trace_key {
     u32 pid;
     u64 time;
     u8 type; // 0: wake upte; 1: scheduled on; 2: scheduled off
+             // 4: hardirq enter; 5: hardirq completes
+             // 6: softirq enter; 7: softirq completes
 } trace_key;
 
 BPF_PERF_OUTPUT(events);
@@ -98,6 +100,65 @@ int trace_run(struct pt_regs *ctx, struct task_struct *prev)
     events.perf_submit(ctx, &key2, sizeof(key2));
     return 0;
 }
+
+
+int trace_hardirq_start(struct pt_regs *ctx, struct irq_desc *desc)
+{
+    u32 pid = bpf_get_current_pid_tgid();
+    u64 ts = bpf_ktime_get_ns();
+
+    struct trace_key key = {};
+    key.pid  = pid;
+    key.time = ts;
+    key.type = 4; 
+    events.perf_submit(ctx, &key, sizeof(key));
+    return 0;
+}
+
+
+int trace_hardirq_complete(struct pt_regs *ctx)
+{
+    u32 pid = bpf_get_current_pid_tgid();
+    u64 ts = bpf_ktime_get_ns();
+
+    struct trace_key key = {};
+    key.pid  = pid;
+    key.time = ts;
+    key.type = 5; 
+    events.perf_submit(ctx, &key, sizeof(key));
+    return 0;
+}
+
+
+
+TRACEPOINT_PROBE(irq, softirq_entry)
+{
+    
+    // u32 pid = bpf_get_current_pid_tgid();
+    // u64 ts = bpf_ktime_get_ns();
+
+    // struct trace_key key = {};
+    // key.pid  = pid;
+    // key.time = ts;
+    // key.type = 6; 
+    // events.perf_submit((struct pt_regs *)args, &key, sizeof(key));
+    
+    return 0;
+}
+
+TRACEPOINT_PROBE(irq, softirq_exit)
+{
+    // u32 pid = bpf_get_current_pid_tgid();
+    // u64 ts = bpf_ktime_get_ns();
+
+    // struct trace_key key = {};
+    // key.pid  = pid;
+    // key.time = ts;
+    // key.type = 6; 
+    // events.perf_submit((struct pt_regs *)args, &key, sizeof(key));
+    return 0;
+}
+
 """
 
 
@@ -107,6 +168,8 @@ b = BPF(text=bpf_text)
 b.attach_kprobe(event="ttwu_do_wakeup", fn_name="trace_ttwu_do_wakeup")
 b.attach_kprobe(event="wake_up_new_task", fn_name="trace_wake_up_new_task")
 b.attach_kprobe(event="finish_task_switch", fn_name="trace_run")
+b.attach_kprobe(event="handle_irq_event_percpu", fn_name="trace_hardirq_start")
+b.attach_kretprobe(event="handle_irq_event_percpu", fn_name="trace_hardirq_complete")
 
 print("Tracing run queue latency... Hit Ctrl-C to end.")
 
