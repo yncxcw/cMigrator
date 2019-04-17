@@ -7,7 +7,7 @@
 
 from __future__ import print_function
 from bcc import BPF
-# from bcc.utils import printb
+from bcc.utils import ArgString, printb
 import argparse
 from time import strftime
 import ctypes as ct
@@ -57,7 +57,7 @@ class Data(ct.Structure):
 # process event
 def print_event(cpu, data, size):
     event = ct.cast(data, ct.POINTER(Data)).contents
-    printb(b"%-9s  %d  %d  %d *d" % (strftime("%H:%M:%S").encode('ascii'), 
+    printb(b"%-9s  %d  %d  %d %d" % (strftime("%H:%M:%S").encode('ascii'), 
            cpu, event.src_cpu, event.des_cpu, event.tasks))
 
 # loop with callback to print_event

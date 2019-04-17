@@ -13,13 +13,14 @@ using namespace std;
 
 
 // benchmark configuration.
-int   threads_count= 2;    // threads count
+int   threads_count= 2;     // threads count
 bool  rt_scheduler = true;  // use rt scheduler
-int   pin_cpu      = 1;     // the first cpu to pin the thread
+int   pin_cpu      = 0;     // the first cpu to pin the thread
+long  total_quota  = 1000;  // total quota in each iterate
 // initialize loads
 std::vector<std::pair<unsigned long, double>> 
     loads = {
-        std::pair<unsigned long, double>(3600, 0.95),
+        std::pair<unsigned long, double>(36000, 0.95),
         std::pair<unsigned long, double>(60, 0.95)
     };
 
@@ -52,9 +53,9 @@ for(int i=0; i<loads.size(); i++){
     double load_exe_time = 0;
     double comp_time     = 0;
     //compute time for each run
-    int comp_quota    = 100 * loads[i].second;
+    int comp_quota    = total_quota * loads[i].second;
     //sleep time for each run
-    int sleep_quota   = 100 * (1 - loads[i].second);
+    int sleep_quota   = total_quota * (1 - loads[i].second);
     while(true){
 
         if(load_exe_time / 1000 > loads[i].first){

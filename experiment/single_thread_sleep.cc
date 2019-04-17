@@ -14,23 +14,15 @@ using namespace std;
 
 int main(){
 
-
-struct sched_param param;
-param.sched_priority = 99;
-if (sched_setscheduler(0, SCHED_FIFO, & param) != 0) {
-    std::cout<<"sched_setscheduler error";
-    exit(EXIT_FAILURE);  
-}
-
-cout<<"pid: "<<getpid()<<endl;
-
-vector<double> array(1024*10, 40);
+int pid = getpid();
+cout<<"pid: "<<pid<<endl;
+vector<double> array(1024*1024, 40);
 
 long compute, sleep;
-double accumulate=0;
-
-cout<<"input compute time and sleep time in millisecond. "<<endl;
-cin>>compute>>sleep;
+double accumulate = 0;
+double total = 0, last_total = 0;
+compute = 90;
+sleep   = 10;
 
 //A infinite loop
 while(true){
@@ -39,6 +31,7 @@ while(true){
         //sleep for sleep time
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep));
         accumulate = 0;
+	total += sleep / 1000.0;
     }else{
 
         auto begin = std::chrono::high_resolution_clock::now();
@@ -50,6 +43,14 @@ while(true){
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - begin);
         accumulate += duration.count() * 1.0 /1000;
+	total += duration.count() * 1.0 / 10e6;
+    }
+
+    //cout<<total<<" "<<last_total<<endl;
+
+    if(total - last_total >= 1){
+        cout<<"pid: "<<pid<<" "<<total<<endl;
+        last_total = total;	
     }
 
 }

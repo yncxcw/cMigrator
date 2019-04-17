@@ -29,6 +29,7 @@ from bcc import BPF
 from time import sleep, strftime
 import argparse
 import ctypes as ct
+from threading import Timer
 # arguments
 examples = """examples:
     ./offcpu --cpu 0     # trace context switching events on cpu 0
@@ -37,8 +38,8 @@ parser = argparse.ArgumentParser(
     description="Summarize run queue (scheduler) latency as a histogram",
     formatter_class=argparse.RawDescriptionHelpFormatter,
     epilog=examples)
-parser.add_argument("--cpu", type=int, default=0)
-
+parser.add_argument("--cpu",  type=int, default=0)
+parser.add_argument("--time", type=int, default=5)
 args = parser.parse_args()
 
 
@@ -54,8 +55,8 @@ typedef struct trace_key {
     u32 pid;
     u64 time;
     u8 type; // 0: wake upte; 1: scheduled on; 2: scheduled off
-             // 4: hardirq enter; 5: hardirq completes
-             // 6: softirq enter; 7: softirq completes
+             // 3: hardirq enter; 4: hardirq completes
+             // 5: softirq enter; 6: softirq completes
 } trace_key;
 
 BPF_PERF_OUTPUT(events);
@@ -110,7 +111,7 @@ int trace_hardirq_start(struct pt_regs *ctx, struct irq_desc *desc)
     struct trace_key key = {};
     key.pid  = pid;
     key.time = ts;
-    key.type = 4; 
+    key.type = 3; 
     events.perf_submit(ctx, &key, sizeof(key));
     return 0;
 }
@@ -124,7 +125,7 @@ int trace_hardirq_complete(struct pt_regs *ctx)
     struct trace_key key = {};
     key.pid  = pid;
     key.time = ts;
-    key.type = 5; 
+    key.type = 4; 
     events.perf_submit(ctx, &key, sizeof(key));
     return 0;
 }
@@ -134,28 +135,28 @@ int trace_hardirq_complete(struct pt_regs *ctx)
 TRACEPOINT_PROBE(irq, softirq_entry)
 {
     
-    // u32 pid = bpf_get_current_pid_tgid();
-    // u64 ts = bpf_ktime_get_ns();
+    u32 pid = bpf_get_current_pid_tgid();
+    u64 ts = bpf_ktime_get_ns();
 
-    // struct trace_key key = {};
-    // key.pid  = pid;
-    // key.time = ts;
-    // key.type = 6; 
-    // events.perf_submit((struct pt_regs *)args, &key, sizeof(key));
+    struct trace_key key = {};
+    key.pid  = pid;
+    key.time = ts;
+    key.type = 5; 
+    events.perf_submit((struct pt_regs *)args, &key, sizeof(key));
     
     return 0;
 }
 
 TRACEPOINT_PROBE(irq, softirq_exit)
 {
-    // u32 pid = bpf_get_current_pid_tgid();
-    // u64 ts = bpf_ktime_get_ns();
+    u32 pid = bpf_get_current_pid_tgid();
+    u64 ts = bpf_ktime_get_ns();
 
-    // struct trace_key key = {};
-    // key.pid  = pid;
-    // key.time = ts;
-    // key.type = 6; 
-    // events.perf_submit((struct pt_regs *)args, &key, sizeof(key));
+    struct trace_key key = {};
+    key.pid  = pid;
+    key.time = ts;
+    key.type = 6; 
+    events.perf_submit((struct pt_regs *)args, &key, sizeof(key));
     return 0;
 }
 
@@ -182,27 +183,43 @@ class Event(ct.Structure):
     ]
 
 PyEvents = []
+RUN = True
 
 def print_event(cpu, data ,size):
-    event = ct.cast(data, ct.POINTER(Event)).contents
+    try:
+        if cpu != args.cpu:
+            return
+        event = ct.cast(data, ct.POINTER(Event)).contents
     
-    if cpu != args.cpu:
-        return
-    pid   = event.pid
-    time  = event.time
-    etype = event.type
-    PyEvents.append((pid, time, etype))
+        pid   = event.pid
+        time  = event.time
+        etype = event.type
+        PyEvents.append((pid, time, etype))
+    except:
+        print("exception")
+        raise Exception("Exception when printing")
+        
 
-    
+# Schedule a timer to stop main process
+def timer_stop():
+    global RUN
+    RUN = False
+
+Timer(args.time, timer_stop, ()).start()
+
 b["events"].open_perf_buffer(print_event)
-while (1):
+while RUN:
     try:
         b.perf_buffer_poll()
-    except KeyboardInterrupt:
-        print(len(PyEvents))
-        PyEvents.sort(key=lambda tup: tup[1])
-        for event in PyEvents:
-            print(event[0]," ",event[1]," ",event[2])
-        exit()
-        
-    
+    except:
+        break
+
+# Print out or save into file
+PyEvents.sort(key=lambda tup: tup[1])
+stats = [0] * 7 
+for event in PyEvents:
+    stats[event[2]] = stats[event[2]] + 1
+    print(event[0]," ",event[1]," ",event[2])
+
+print("Total %s".format(len(PyEvents)))
+print(stats)
