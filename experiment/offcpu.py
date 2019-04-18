@@ -192,7 +192,7 @@ def print_event(cpu, data ,size):
         event = ct.cast(data, ct.POINTER(Event)).contents
     
         pid   = event.pid
-        time  = event.time
+        time  = event.time/1000
         etype = event.type
         PyEvents.append((pid, time, etype))
     except:
@@ -219,7 +219,8 @@ PyEvents.sort(key=lambda tup: tup[1])
 stats = [0] * 7 
 for event in PyEvents:
     stats[event[2]] = stats[event[2]] + 1
-    print(event[0]," ",event[1]," ",event[2])
+    if event[2] == 5 or event[2] == 6:
+        print(event[0]," ",event[1]," ",event[2])
 
 print("Total %s".format(len(PyEvents)))
 print(stats)
