@@ -51,12 +51,18 @@ bpf_text = """
 #include <linux/nsproxy.h>
 #include <linux/pid_namespace.h>
 
+#include <linux/irq.h>
+#include <linux/irqdesc.h>
+#include <linux/interrupt.h>
+
+
 typedef struct trace_key {
     u32 pid;
     u64 time;
-    u8 type; // 0: wake upte; 1: scheduled on; 2: scheduled off
-             // 3: hardirq enter; 4: hardirq completes
-             // 5: softirq enter; 6: softirq completes
+    u8  type; // 0: wake upte; 1: scheduled on; 2: scheduled off
+              // 3: hardirq enter; 4: hardirq completes
+              // 5: softirq enter; 6: softirq completes
+    u8  irqtype;
 } trace_key;
 
 BPF_PERF_OUTPUT(events);
@@ -67,6 +73,7 @@ void trace_wake_up_new_task(struct pt_regs *ctx, struct task_struct *p)
     key.pid  = p->pid;
     key.time = bpf_ktime_get_ns();
     key.type = 0;
+    key.irqtype = 0xff;
     events.perf_submit(ctx, &key, sizeof(key));
  
 }
@@ -78,6 +85,7 @@ void trace_ttwu_do_wakeup(struct pt_regs *ctx, struct rq *rq, struct task_struct
     key.pid  = p->pid;
     key.time = bpf_ktime_get_ns();
     key.type = 0;
+    key.irqtype = 0xff;
     events.perf_submit(ctx, &key, sizeof(key));
 }
 
@@ -92,12 +100,14 @@ int trace_run(struct pt_regs *ctx, struct task_struct *prev)
     key1.pid  = prev->pid;
     key1.time = current_time;
     key1.type = 2;
+    key1.irqtype = 0xff;
     events.perf_submit(ctx, &key1, sizeof(key1));
 
     struct trace_key key2 = {};
     key2.pid  = bpf_get_current_pid_tgid();
     key2.time = current_time;
     key2.type = 1;
+    key2.irqtype = 0xff;
     events.perf_submit(ctx, &key2, sizeof(key2));
     return 0;
 }
@@ -111,7 +121,8 @@ int trace_hardirq_start(struct pt_regs *ctx, struct irq_desc *desc)
     struct trace_key key = {};
     key.pid  = pid;
     key.time = ts;
-    key.type = 3; 
+    key.type = 3;
+    key.irqtype = desc->action->irq; 
     events.perf_submit(ctx, &key, sizeof(key));
     return 0;
 }
@@ -125,7 +136,8 @@ int trace_hardirq_complete(struct pt_regs *ctx)
     struct trace_key key = {};
     key.pid  = pid;
     key.time = ts;
-    key.type = 4; 
+    key.type = 4;
+    key.irqtype = 0xff;
     events.perf_submit(ctx, &key, sizeof(key));
     return 0;
 }
@@ -141,7 +153,8 @@ TRACEPOINT_PROBE(irq, softirq_entry)
     struct trace_key key = {};
     key.pid  = pid;
     key.time = ts;
-    key.type = 5; 
+    key.type = 5;
+    key.irqtype = args->vec;
     events.perf_submit((struct pt_regs *)args, &key, sizeof(key));
     
     return 0;
@@ -155,7 +168,8 @@ TRACEPOINT_PROBE(irq, softirq_exit)
     struct trace_key key = {};
     key.pid  = pid;
     key.time = ts;
-    key.type = 6; 
+    key.type = 6;
+    key.irqtype = 0xff;
     events.perf_submit((struct pt_regs *)args, &key, sizeof(key));
     return 0;
 }
@@ -180,6 +194,7 @@ class Event(ct.Structure):
         ("pid",  ct.c_uint32),
         ("time", ct.c_uint64),
         ("type", ct.c_uint8),
+        ("irqtype", ct.c_uint8),
     ]
 
 PyEvents = []
@@ -194,7 +209,8 @@ def print_event(cpu, data ,size):
         pid   = event.pid
         time  = event.time/1000
         etype = event.type
-        PyEvents.append((pid, time, etype))
+        itype = event.irqtype
+        PyEvents.append((pid, time, etype, itype))
     except:
         print("exception")
         raise Exception("Exception when printing")
@@ -204,6 +220,14 @@ def print_event(cpu, data ,size):
 def timer_stop():
     global RUN
     RUN = False
+
+def store_events():
+    log = open("log.txt", "w")
+    for event in PyEvents:
+        log.write(str(event[0]) + " " + str(event[1]) + " "+ 
+                  str(event[2]) + " " + str(event[3]) + "\n")
+    log.close()
+    
 
 Timer(args.time, timer_stop, ()).start()
 
@@ -217,10 +241,9 @@ while RUN:
 # Print out or save into file
 PyEvents.sort(key=lambda tup: tup[1])
 stats = [0] * 7 
-for event in PyEvents:
-    stats[event[2]] = stats[event[2]] + 1
-    if event[2] == 5 or event[2] == 6:
-        print(event[0]," ",event[1]," ",event[2])
+for index in range(len(PyEvents)):
+    if PyEvents[index][2] == 0 and PyEvents[index+1][2] == 2 \
+        and PyEvents[index + 1][1] - PyEvents[index][1] > 100: 
+            print(index)
 
-print("Total %s".format(len(PyEvents)))
-print(stats)
+store_events()

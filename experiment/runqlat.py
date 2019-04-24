@@ -28,6 +28,11 @@ from bcc import BPF
 from time import sleep, strftime
 import argparse
 
+def stack_id_err(stack_id):
+    # -EFAULT in get_stackid normally means the stack-trace is not availible,
+    # Such as getting kernel stack trace in userspace code
+    return (stack_id < 0) and (stack_id != -errno.EFAULT)
+
 # arguments
 examples = """examples:
     ./runqlat            # summarize run queue latency as a histogram
@@ -46,6 +51,8 @@ parser.add_argument("-m", "--milliseconds", action="store_true",
     help="millisecond histogram")
 parser.add_argument("-P", "--pids", action="store_true",
     help="print a histogram per process ID")
+parser.add_argument("-S", "--throttle", default=0, 
+    help="Throttling for printing stack trace")
 # PID options are --pid and --pids, so namespaces should be --pidns (not done
 # yet) and --pidnss:
 parser.add_argument("--pidnss", action="store_true",
@@ -79,14 +86,17 @@ typedef struct pidns_key {
     u64 slot;
 } pidns_key_t;
 
+
+BPF_STACK_TRACE(stack_trace, 1024);
+BPF_HASH(trace_hash, u64, int);
+
 BPF_HASH(start, u32);
 STORAGE
 
 struct rq;
 
-// record enqueue timestamp
-int trace_enqueue(struct pt_regs *ctx, struct rq *rq, struct task_struct *p,
-    int flags)
+// record wakeup timestamp
+int trace_wakeup(struct pt_regs *ctx, struct rq *rq, struct task_struct *p, int wake_flags)
 {
     u32 tgid = p->tgid;
     u32 pid = p->pid;
@@ -94,6 +104,10 @@ int trace_enqueue(struct pt_regs *ctx, struct rq *rq, struct task_struct *p,
         return 0;
     u64 ts = bpf_ktime_get_ns();
     start.update(&pid, &ts);
+
+    int kstack_id = stack_trace.get_stackid(ctx, BPF_F_USER_STACK);      
+    trace_hash.update(&ts, &kstack_id);
+    
     return 0;
 }
 
@@ -129,6 +143,8 @@ int trace_run(struct pt_regs *ctx, struct task_struct *prev)
     // store as histogram
     STORE
 
+    
+    
     start.delete(&pid);
     return 0;
 }
@@ -169,12 +185,20 @@ else:
     bpf_text = bpf_text.replace('STORAGE', 'BPF_HISTOGRAM(dist);')
     bpf_text = bpf_text.replace('STORE',
         'dist.increment(bpf_log2l(delta));')
+
+if args.throttle > 10:
+    bpf_text = bpf_text.replace('THROTTLE',
+        'delta >> 10 > ' + args.throttle)
+else:
+    bpf_text = bpf_text.replace('THROTTLE',
+        '0')
+
 if debug:
     print(bpf_text)
 
 # load BPF program
 b = BPF(text=bpf_text)
-b.attach_kprobe(event_re="enqueue_task_*", fn_name="trace_enqueue")
+b.attach_kprobe(event="ttwu_do_wakeup",  fn_name="trace_wakeup")
 b.attach_kprobe(event="finish_task_switch", fn_name="trace_run")
 
 print("Tracing run queue latency... Hit Ctrl-C to end.")
@@ -182,19 +206,34 @@ print("Tracing run queue latency... Hit Ctrl-C to end.")
 # output
 exiting = 0 if args.interval else 1
 dist = b.get_table("dist")
+stack = b.get_table("stack_trace")
+trace = b.get_table("trace_hash")
 while (1):
     try:
         sleep(int(args.interval))
     except KeyboardInterrupt:
         exiting = 1
+        break
 
-    print()
-    if args.timestamp:
-        print("%-8s\n" % strftime("%H:%M:%S"), end="")
+print()
+if args.timestamp:
+    print("%-8s\n" % strftime("%H:%M:%S"), end="")
 
-    dist.print_log2_hist(label, section, section_print_fn=int)
-    dist.clear()
+dist.print_log2_hist(label, section, section_print_fn=int)
+dist.clear()
 
-    countdown -= 1
-    if exiting or countdown == 0:
-        exit()
+print(len(stack))
+print(len(trace))
+if args.throttle > 10:
+    # k for runqueue latency
+    # v for stack trace id
+    for k, v in sorted(trace.items(), key=lambda item: item[0], reverse=True):
+        kernel_stack = stack.walk(v.value)
+        print("start")
+        if stack_id_err(v.value):
+            print("    [Missed Kernel Stack]")
+        else:
+            for addr in kernel_stack:
+                print("addr {}".format(addr))
+                print("    %s" % b.ksym(addr))
+
