@@ -31,7 +31,7 @@ import argparse
 def stack_id_err(stack_id):
     # -EFAULT in get_stackid normally means the stack-trace is not availible,
     # Such as getting kernel stack trace in userspace code
-    return (stack_id < 0) and (stack_id != -errno.EFAULT)
+    return (stack_id < 0) ## and (stack_id != -errno.EFAULT)
 
 # arguments
 examples = """examples:
@@ -51,7 +51,7 @@ parser.add_argument("-m", "--milliseconds", action="store_true",
     help="millisecond histogram")
 parser.add_argument("-P", "--pids", action="store_true",
     help="print a histogram per process ID")
-parser.add_argument("-S", "--throttle", default=0, 
+parser.add_argument("-S", "--throttle", action="store_true", 
     help="Throttling for printing stack trace")
 # PID options are --pid and --pids, so namespaces should be --pidns (not done
 # yet) and --pidnss:
@@ -87,9 +87,15 @@ typedef struct pidns_key {
 } pidns_key_t;
 
 
-BPF_STACK_TRACE(stack_trace, 1024);
-BPF_HASH(trace_hash, u64, int);
+struct stack_key_t {
+    u64 pid;
+    int stack_wake;
+    int stack_switch;
+};
 
+BPF_STACK_TRACE(stack_trace, 2048);
+BPF_HASH(start_trace, u32, int);
+BPF_HASH(stack_trace_table, struct stack_key_t, u64);
 BPF_HASH(start, u32);
 STORAGE
 
@@ -105,8 +111,10 @@ int trace_wakeup(struct pt_regs *ctx, struct rq *rq, struct task_struct *p, int 
     u64 ts = bpf_ktime_get_ns();
     start.update(&pid, &ts);
 
-    int kstack_id = stack_trace.get_stackid(ctx, BPF_F_USER_STACK);      
-    trace_hash.update(&ts, &kstack_id);
+    
+    int kstack_id = stack_trace.get_stackid(ctx, 0);    
+
+    start_trace.update(&pid, &kstack_id);
     
     return 0;
 }
@@ -141,11 +149,31 @@ int trace_run(struct pt_regs *ctx, struct task_struct *prev)
     FACTOR
 
     // store as histogram
-    STORE
-
-    
+    STORE 
     
     start.delete(&pid);
+
+    int *stack_wake;
+    stack_wake = start_trace.lookup(&pid);
+    // must do this check, though it is weired as tsp != 0 should 
+    // ensure that pid is in start_trace
+    if(stack_wake == 0){
+        return 0;
+    }
+
+    if (delta > 2){
+        // get stack in wake
+        int kstack_id = stack_trace.get_stackid(ctx, 0);  
+        struct stack_key_t stack_key ={
+            .pid = pid,
+            .stack_wake = *stack_wake,
+            .stack_switch = kstack_id
+        };
+        stack_trace_table.update(&stack_key, &delta); 
+    }
+
+    start_trace.delete(&pid);
+    
     return 0;
 }
 """
@@ -186,13 +214,6 @@ else:
     bpf_text = bpf_text.replace('STORE',
         'dist.increment(bpf_log2l(delta));')
 
-if args.throttle > 10:
-    bpf_text = bpf_text.replace('THROTTLE',
-        'delta >> 10 > ' + args.throttle)
-else:
-    bpf_text = bpf_text.replace('THROTTLE',
-        '0')
-
 if debug:
     print(bpf_text)
 
@@ -207,7 +228,7 @@ print("Tracing run queue latency... Hit Ctrl-C to end.")
 exiting = 0 if args.interval else 1
 dist = b.get_table("dist")
 stack = b.get_table("stack_trace")
-trace = b.get_table("trace_hash")
+trace = b.get_table("stack_trace_table")
 while (1):
     try:
         sleep(int(args.interval))
@@ -224,16 +245,28 @@ dist.clear()
 
 print(len(stack))
 print(len(trace))
-if args.throttle > 10:
+if args.throttle:
     # k for runqueue latency
     # v for stack trace id
-    for k, v in sorted(trace.items(), key=lambda item: item[0], reverse=True):
-        kernel_stack = stack.walk(v.value)
-        print("start")
-        if stack_id_err(v.value):
-            print("    [Missed Kernel Stack]")
+    for k, v in sorted(trace.items(), key=lambda item: item[1], reverse=True):
+        print("pid: {}".format(k.pid))
+        stack_wake_id = k.stack_wake
+        print("wake id: ", stack_wake_id)
+        if stack_id_err(stack_wake_id):
+            print("    [Missed kernel stack]")
         else:
+            print("wake stack")
+            kernel_stack = stack.walk(stack_wake_id)
             for addr in kernel_stack:
-                print("addr {}".format(addr))
                 print("    %s" % b.ksym(addr))
+        stack_switch_id = k.stack_switch
+        print("switch id: ", stack_switch_id)
+        if stack_id_err(stack_switch_id):
+            print("    [Missed kernel stack]")
+        else:
+            print("switch stack")
+            kernel_stack = stack.walk(stack_switch_id)
+            for addr in kernel_stack:
+                print("    %s" % b.ksym(addr))
+
 
