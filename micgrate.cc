@@ -30,6 +30,7 @@ namespace migrator{
         const unsigned int CPUS_NUM = sysconf(_SC_NPROCESSORS_ONLN);
         const unsigned int CPU_SLEEP_TIME = 50;
         const unsigned int MAX_STATE_ARRAY = 50;
+        const unsigned int MAX_LC_RUN = 12; 
 
         bool FINISH = false;
 
@@ -61,7 +62,7 @@ namespace migrator{
             //current state;
             State state;
             //state in last MAX_STATE_ARRAY ms
-            std::vector<State> states();
+            std::vector<State> states;
             
              
    
@@ -289,7 +290,27 @@ namespace migrator{
             return true;
         }
         
-        
+
+        //If the lc process is in running state longer than thresh_ms ms
+        bool lc_process_running(Process* process, unsigned int thresh_ms){
+            if(!process.is_latency)
+                return false;
+
+            int count = 0;
+            auto ite = process->states.rbegin();
+            while(ite != process->states.rend()){
+                if(*ite != R)
+                    break;
+                else{
+                    ite++;
+                    count++;
+                }
+            }
+
+            return count >= thresh_ms ? true: false;
+        }        
+
+
         //thread to inspect process cpu stats
         void thread_cpu_update(){
         
@@ -319,7 +340,13 @@ namespace migrator{
 
                 //RT Load balancing migration (migrate if LC process hold a core for too long)
                 {
-
+                    std::lock_guard<std::mutex> lock(applications.apps_lock);
+                    //update available CPU cores
+                    for(auto pair& : cpu_to_process){
+                        if(lc_process_running(pair.second, MAX_LC_RUN)){
+                            cpus.erase(pair.first);
+                        }
+                    }
                 }
                 std::this_thread::sleep_for(
                     std::chrono::milliseconds(CPU_SLEEP_TIME)); 
