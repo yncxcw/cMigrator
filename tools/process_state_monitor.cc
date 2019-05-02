@@ -45,7 +45,7 @@ int main(){
         }
         if(state == "R"){
             con_run++;
-            max_run = con_run > max_run? con_run: con_run;
+            max_run = con_run > max_run? con_run: max_run;
         }else{
             con_run=0;
         }
