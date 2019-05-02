@@ -49,7 +49,7 @@ int main(){
 
     }
 
-    usleep(500);
+    usleep(1000);
 
     auto now = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - start);
