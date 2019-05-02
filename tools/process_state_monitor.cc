@@ -14,7 +14,8 @@ int main(){
   std::cin>>process>>run_time;  
   std::vector<std::string> states;  
 
-    
+  int max_run=0;
+  int con_run=0;  
   auto start = std::chrono::high_resolution_clock::now();
 
   while(1){
@@ -41,6 +42,12 @@ int main(){
             }
             line.erase(0, pos + delimiter.length());
             ++count;
+        }
+        if(state == "R"){
+            con_run++;
+            max_run = con_run > max_run? con_run: con_run;
+        }else{
+            con_run=0;
         }
         states.push_back(state);
         
