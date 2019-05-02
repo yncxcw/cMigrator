@@ -64,6 +64,7 @@ int main(){
         break;
   }  
 
+  std::cout<<max_run<<std::endl;
   std::string output;
   std::ofstream outfile("result.txt");
   for(auto state: states){ 
