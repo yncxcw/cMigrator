@@ -342,13 +342,30 @@ namespace migrator{
                 {
                     std::lock_guard<std::mutex> lock(applications.apps_lock);
                     //update available CPU cores
+                    bool need_update = false;
                     for(auto pair& : cpu_to_process){
+                        //remove this cpu if it LC process on it holds cpu too long
                         if(lc_process_running(pair.second, MAX_LC_RUN)){
+                            need_update = true;
                             cpus.erase(pair.first);
+                        //pair.first is not in allowed cpus
+                        }else if(cpus.find(pair.first) == cpus.end()){
+                            need_update = true;
+                            cpus.insert(pair.first);
                         }
                     }
 
-		    
+                    if(need_update){
+                        for(auto& app: applications.apps)
+                        for(Process* process: app.processes){
+                            if(process->is_latency)
+                                continue;
+                            process->allowed_cpus.clear();
+                            process->allowed_cpus.insert(cpus.begin(), cpus.end());
+                            set_process_schedaffnity(process, process->allowed_cpus);
+                            std::cout<<"reset cpu affinity for process "<<process->pid<<std::endl;
+                        }
+                    }		    
                 }
                 std::this_thread::sleep_for(
                     std::chrono::milliseconds(CPU_SLEEP_TIME)); 
