@@ -10,11 +10,13 @@ int main(){
   //process to monitor
   int process;
   //time to inspect in seconds
-  int run_time;
-  std::cin>>process>>run_time;  
+  int exe_time;
+  std::cin>>process>>exe_time;  
   std::vector<std::string> states;  
+  std::vector<unsigned int> run_time;
+  std::vector<unsigned int> idl_time;
 
-  int max_run=0;
+  int con_idl=0;
   int con_run=0;  
   auto start = std::chrono::high_resolution_clock::now();
 
@@ -43,12 +45,24 @@ int main(){
             line.erase(0, pos + delimiter.length());
             ++count;
         }
+
         if(state == "R"){
-            con_run++;
-            max_run = con_run > max_run? con_run: max_run;
+				
+	    if(con_run == 0 && con_idl > 0){
+		idl_time.push_back(con_idl);
+	    	con_idl = 0;
+            }
+	    con_run++;
         }else{
-            con_run=0;
+	    if(con_idl == 0 && con_run > 0){
+	        run_time.push_back(con_run);
+	        con_run = 0;	
+	    }
+
+            con_idl++;
         }
+
+
         states.push_back(state);
         
     }else{
@@ -60,18 +74,29 @@ int main(){
 
     auto now = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - start);
-    if (duration.count() > run_time)
+    if (duration.count() > exe_time)
         break;
   }  
 
-  std::cout<<max_run<<std::endl;
-  std::string output;
-  std::ofstream outfile("result.txt");
-  for(auto state: states){ 
-    output += state;
+
+  //analyze the tracing results
+  std::ofstream outfile0("state.txt");
+  for(auto& v: states){ 
+    outfile0 << v << std::endl;
   }
-  //write one line
-  outfile << output; 
-  outfile.close();
+  outfile0.close();
+
+  std::ofstream outfile1("run.txt");
+  for(auto& v: run_time){ 
+    outfile1 << v << std::endl;
+  }
+  outfile1.close();
+
+  std::ofstream outfile2("ide.txt");
+  for(auto& v: idl_time){ 
+    outfile2 << v << std::endl;
+  }
+  outfile2.close();
+
   return 0;    
 }
