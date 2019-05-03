@@ -46,7 +46,7 @@ namespace migrator{
                     //release set
                     std::set<unsigned int>().swap(allowed_cpus);
                     //release vector
-                    std::set<State>().swap(states);
+		    std::vector<State>().swap(states);
                 };    
 
             //pid of this process
@@ -173,7 +173,7 @@ namespace migrator{
         }
         
         
-        void set_process_schedaffnity(Process* process, std::vector<int> cpus){
+        void set_process_schedaffnity(Process* process, std::set<int> cpus){
             process->allowed_cpus.clear();
             cpu_set_t cpu_set;
             CPU_ZERO(&cpu_set);
@@ -224,7 +224,7 @@ namespace migrator{
                     cpu_to_process[cpu] = process;
                 }else{ 
                     process->is_latency = false;
-                    for(auto cpu: cpus)
+                    for(auto& cpu: cpus)
                         process->allowed_cpus.insert(cpu);
 
                     set_process_schedaffnity(process, process->allowed_cpus);
@@ -338,7 +338,7 @@ namespace migrator{
                     }
                 }
 
-                //RT Load balancing migration (migrate if LC process hold a core for too long)
+                //RT Load balancing migration (migrate if LC process holds a core for too long)
                 {
                     std::lock_guard<std::mutex> lock(applications.apps_lock);
                     //update available CPU cores
@@ -347,6 +347,8 @@ namespace migrator{
                             cpus.erase(pair.first);
                         }
                     }
+
+		    
                 }
                 std::this_thread::sleep_for(
                     std::chrono::milliseconds(CPU_SLEEP_TIME)); 
@@ -403,7 +405,7 @@ namespace migrator{
         std::map<unsigned int, Process* > cpu_to_process;
 
         //keep all available CPU cores for BS processes
-        std::vector<unsigned int> cpus(CPUS_NUM); 
+        std::set<unsigned int> cpus(CPUS_NUM); 
 
     }
 

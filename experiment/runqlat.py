@@ -161,7 +161,7 @@ int trace_run(struct pt_regs *ctx, struct task_struct *prev)
         return 0;
     }
 
-    if (delta > 2){
+    if (delta > 200){
         // get stack in wake
         int kstack_id = stack_trace.get_stackid(ctx, 0);  
         struct stack_key_t stack_key ={
