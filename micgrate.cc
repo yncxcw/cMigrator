@@ -5,7 +5,9 @@
 
 #include <vector>
 #include <set>
+#include <map>
 #include <string>
+#include <cstring>
 #include <mutex>
 #include <thread>
 #include <sched.h>
@@ -17,56 +19,60 @@
 #include <zmq.hpp>
 namespace migrator{
 
+    enum State {R, S, D, T, N};
+        
+    //shared global vairable
+    const unsigned int CPUS_NUM = sysconf(_SC_NPROCESSORS_ONLN);
+    const unsigned int CPU_SLEEP_TIME = 50;
+    const unsigned int MAX_STATE_ARRAY = 50;
+    const unsigned int MAX_LC_RUN = 12; 
 
     class Migrator{
+        
+    public:
 
+        Migrator(){
+
+        }
+        
         ~Migrator(){
 
         }
 
-        enum State {R, S, D, T, N};
         
-        //shared global vairable
-        const unsigned int CPUS_NUM = sysconf(_SC_NPROCESSORS_ONLN);
-        const unsigned int CPU_SLEEP_TIME = 50;
-        const unsigned int MAX_STATE_ARRAY = 50;
-        const unsigned int MAX_LC_RUN = 12; 
-
         bool FINISH = false;
 
         //Core data structure declare 
         class Process{
    
             public:
+                //pid of this process
+                pid_t pid;
+                //pid of thie thread
+                pid_t tid;
+                //process type, is latency critical;
+                bool is_latency;
+                //current cpu;
+                unsigned int cpu_id;
+                //allowed cpus;
+                std::set<unsigned int> allowed_cpus;
+                //current state;
+                State state;
+                //state in last MAX_STATE_ARRAY ms
+                std::vector<State> states;
+            
                 Process(){};
 
-                process(pid_t pid, pid_t tid):pid(pid), tid(tid){};
+                Process(pid_t _pid, pid_t _tid):pid(_pid), tid(_tid){};
 
                 ~Process(){
                     //release set
                     std::set<unsigned int>().swap(allowed_cpus);
                     //release vector
-		    std::vector<State>().swap(states);
+		        std::vector<State>().swap(states);
                 };    
 
-            //pid of this process
-            pid_t pid;
-            //pid of thie thread
-            pid_t tid;
-            //process type, is latency critical;
-            bool is_latency;
-            //current cpu;
-            unsigned int cpu_id;
-            //allowed cpus;
-            std::set<unsigned int> allowed_cpus;
-            //current state;
-            State state;
-            //state in last MAX_STATE_ARRAY ms
-            std::vector<State> states;
-            
-             
-   
-            //is the main process of the application
+                        //is the main process of the application
             bool is_main(){
                 return pid == tid;
             }
@@ -173,7 +179,7 @@ namespace migrator{
         }
         
         
-        void set_process_schedaffnity(Process* process, std::set<int> cpus){
+        void set_process_schedaffnity(Process* process, std::set<unsigned int> cpus){
             process->allowed_cpus.clear();
             cpu_set_t cpu_set;
             CPU_ZERO(&cpu_set);
@@ -243,8 +249,8 @@ namespace migrator{
         
         //false if the process finished
         bool update_process_profile(Process* process){
-            std::string path = "/proc/"+ std::to_string(process.pid)+
-                                  + "/"+ std::to_string(process.tid)+"/stat";
+            std::string path = "/proc/"+ std::to_string(process->pid)+
+                                  + "/"+ std::to_string(process->tid)+"/stat";
             if(!file_exist(path)){
                 return false;
             }
@@ -254,7 +260,7 @@ namespace migrator{
             
             process->states.push_back(process->state);
             if(process->states.size() > MAX_STATE_ARRAY){
-                process->states.erase(process->state.begin());
+                process->states.erase(process->states.begin());
             }   
             return true;
         }
@@ -293,7 +299,7 @@ namespace migrator{
 
         //If the lc process is in running state longer than thresh_ms ms
         bool lc_process_running(Process* process, unsigned int thresh_ms){
-            if(!process.is_latency)
+            if(!process->is_latency)
                 return false;
 
             int count = 0;
@@ -322,7 +328,7 @@ namespace migrator{
                 {
                     std::lock_guard<std::mutex> lock(applications.apps_lock); 
                     for(auto iter =applications.apps.begin(); iter!=applications.apps.end();){
-                        if(update_appliation_profile(*iter, cpu_to_process)){
+                        if(update_appliation_profile(*iter)){
                             iter++;
                         }else{
                             for(auto process: iter->processes){
@@ -343,7 +349,7 @@ namespace migrator{
                     std::lock_guard<std::mutex> lock(applications.apps_lock);
                     //update available CPU cores
                     bool need_update = false;
-                    for(auto pair& : cpu_to_process){
+                    for(auto& pair: cpu_to_process){
                         //remove this cpu if it LC process on it holds cpu too long
                         if(lc_process_running(pair.second, MAX_LC_RUN)){
                             need_update = true;
@@ -383,8 +389,8 @@ namespace migrator{
             std::cout<<"Start user cmd thread."<<std::endl;
 
             while(!FINISH){
-                zqm::message_t command;
-                zqm::message_t reply(3);
+                zmq::message_t command;
+                zmq::message_t reply(3);
                 //wait for the next command
                 socket.recv(&command);
                 std::string command_str = std::string(
@@ -393,27 +399,31 @@ namespace migrator{
                 // first 4 chars are command types
                 // now supports QUIT, LAUN pid
                 std::string command_type = command_str.substr(0, 4);
-                switch(cmmand_type){
-                    case "QUIT":
-                        FINISH = true;
-                        break;
-                    case "LAUN":
-                        pid_t app_id = std::stoi(command_str.substr(5));
-                        create_application(app_id);
-                        break;
-                    default:
-                        FINISh = true;
-                        std::cout<<"Unexpected command, quitting."<<std::endl;
-                        break;
+                if(command_type == "QUIT"){
+                    FINISH = true;
+                }else if(command_type == "LAUN"){
+                    pid_t app_id = std::stoi(command_str.substr(5));
+                    create_application(app_id);
+                }else{
+                    FINISH= true;
+                    std::cout<<"Unexpected command, quitting."<<std::endl;
                 } 
-                memcopy((void *) reply.data(), "ACK", 3);
+                std::memcpy((void *) reply.data(), "ACK", 3);
                 socket.send(reply);
             } 
 
             std::cout<<"Finish cmd thread."<<std::endl;
         }
   
-         
+        void launch_service(){
+            std::thread cpu_thread = std::thread([this](){thread_cpu_update();});
+            //launch the user command thread
+            std::thread cmd_thread = std::thread([this](){thread_user_cmd();}); 
+            //wait to completes
+            cpu_thread.join();
+            cmd_thread.join();
+        }
+     
         //Core data structure
         Applications applications;
 
@@ -422,26 +432,17 @@ namespace migrator{
         std::map<unsigned int, Process* > cpu_to_process;
 
         //keep all available CPU cores for BS processes
-        std::set<unsigned int> cpus(CPUS_NUM); 
+        std::set<unsigned int> cpus; 
 
-    }
+    };
 
-    void launch_service(){
-        Migrator migrator;
-        //launch the cpu update thread
-        std::thread cpu_thread = std::thread(migrator.thread_cpu_update);
-        //launch the user command thread
-        std::thread cmd_thread = std::thread(migrator.thread_user_cmd); 
-        //wait to completes
-        cpu_thread.join();
-        cmd_thread.join();
-    }
-
+    
 
 }
 int main(){
- 
-    migrator::launch_service();
+
+    migrator::Migrator migrator_service; 
+    migrator_service.launch_service();
     return 0;
 }
 
