@@ -382,10 +382,9 @@ namespace migrator{
         }
 
         void thread_user_cmd(){
-            
             zmq::context_t context(1);
             zmq::socket_t socket(context, ZMQ_REP);
-            socket.bind("tcp://*.1125");
+            socket.bind("tcp://*:1127");
             std::cout<<"Start user cmd thread."<<std::endl;
 
             while(!FINISH){
