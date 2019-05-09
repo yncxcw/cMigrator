@@ -13,8 +13,6 @@
   }                               \
 })                                \
 
-
-
 class BPFMonitor
 
     public:
@@ -31,7 +29,7 @@ class BPFMonitor
             u32 _uu1000;//# of rqlat > 1000
         };
 
-        BPFMonitor(){std::vector<pid_t> pids}: pids(pids){
+        BPFMonitor(){std::set<pid_t> pids}: pids(pids){
             std::ifstream fin("rqlat.c");
             if (fin){
                 bpf_context = 
@@ -70,7 +68,7 @@ class BPFMonitor
                 bpf.get_hash_table<uint32_t, struct prorqlat>("lat").get_table_offline();
             for(auto it: table.get_table_offline()){
                 //TODO current for test purpose, need to refine this algorithms
-                if(it.second._u100 > 0){
+                if(pids.find(it.first) != pids.end() && it.second._u100 > 5){
                     migrate_lc_process.push_back(it.first);
                 }     
             }
@@ -82,7 +80,7 @@ class BPFMonitor
         
     private:
         //process to monitor
-        std::vector<pid_t> pids;
+        std::set<pid_t> pids;
 
         std::srting bpf_context;
 }; 
