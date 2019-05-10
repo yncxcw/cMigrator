@@ -17,7 +17,6 @@ struct prorqlat{
 BPF_HASH(start, u32);
 BPF_HASH(lat, u64, struct prorqlat);
 
-
 struct rq;
 
 // record wakeup timestamp
@@ -30,7 +29,6 @@ int trace_wakeup(struct pt_regs *ctx, struct rq *rq, struct task_struct *p, int 
     
     return 0;
 }
-
 
 void init_prorqlat(prorqlat* _prorqlat, u32 pid){
     prorqlat->pid    = pid;
@@ -85,7 +83,6 @@ int trace_run(struct pt_regs *ctx, struct task_struct *prev)
     if (tsp == 0) {
         return 0;   // missed enqueue
     }
-
     
     //to micro second
     delta = (bpf_ktime_get_ns() - *tsp) / 1000;

@@ -13,8 +13,7 @@
 #include <sched.h>
 #include <unistd.h>
 #include <filesystem>
-
-
+#include <errno.h>
 //third party
 #include <zmq.hpp>
 namespace migrator{
@@ -30,16 +29,26 @@ namespace migrator{
     class Migrator{
         
     public:
-
         Migrator(){
-
+            for(int cpu_id = 0; cpu_id < CPUS_NUM; cpu_id++){
+	            cpus.insert(cpu_id);
+            }
         }
-        
         ~Migrator(){
-
+            std::lock_guard<std::mutex> lock(applications.apps_lock); 
+            if(applications.apps.size() > 0){
+                for(Application app: applications.apps){
+                    for(Process* process: app.processes){
+                        delete process;
+                    }
+                    std::vector<Process* >().swap(app.processes);
+                }
+                applications.apps.clear();
+            }
+            cpus.clear();
+            cpu_to_process.clear();
         }
 
-        
         bool FINISH = false;
 
         //Core data structure declare 
@@ -69,7 +78,7 @@ namespace migrator{
                     //release set
                     std::set<unsigned int>().swap(allowed_cpus);
                     //release vector
-		        std::vector<State>().swap(states);
+		            std::vector<State>().swap(states);
                 };    
 
                         //is the main process of the application
@@ -77,8 +86,7 @@ namespace migrator{
                 return pid == tid;
             }
         };
-        
-        
+                
         struct Application{
             // application name
             std::string app_name;
@@ -87,7 +95,6 @@ namespace migrator{
             // processes(threads) belong to this applications
             std::vector<Process* > processes;
         };
-        
         
         struct Applications{
             //mutex to protec the shared applications
@@ -100,31 +107,40 @@ namespace migrator{
         bool file_exist(std::string& path){
         
             std::ifstream file(path);
-            if(!file.good())
-                return false;
-            else
+            if(file.good())
                 return true;
+            else
+                return false;
         }
         
         std::string read_line(std::string path){
             std::string line;
             std::ifstream file(path);
-            std::getline(file, line); 
+            std::getline(file, line);
+            file.close(); 
             return line;
         }
+       
         
+        std::string get_proc_stat_path(Process* process){
+            return "/proc/"+ std::to_string(process->pid)+"/task/"
+                           + std::to_string(process->tid)+"/stat";
+ 
+        }
+ 
         std::string get_item_proc(Process* process, int item_idx){
-        
-            std::string path = "/proc/"+ std::to_string(process->pid)+
-                                  + "/"+ std::to_string(process->tid)+"/stat";
-            std::ifstream proc_file(path);
-            std::string line, item;
-            if(proc_file.good()){
-                std::getline(proc_file, line);
-            }else{
-                std::cout<<"open proc file for pid "<<process->pid<<" fails"<<std::endl;
+       
+            std::string line = read_line(get_proc_stat_path(process));
+            assert(item_idx >= 2);
+            item_idx -= 2;
+            //SKile the filename of the executable (1th), in parentheses
+            int i=0;
+            while(line[i] != ')' && i<line.size()){
+                i++;
             }
-            proc_file.close();
+            i+=2;
+            line = line.substr(i); 
+            std::string item; 
             if (line.length() > 0){
                 //split the line by " "
                 std::string delimiter = " ";
@@ -143,7 +159,6 @@ namespace migrator{
             }
             return item;
         }
-        
         
         unsigned int get_process_cpu(Process* process){ 
             //The 38th item in /proc/pid/stat
@@ -177,8 +192,7 @@ namespace migrator{
             process->state = state;
             return state;
         }
-        
-        
+                
         void set_process_schedaffnity(Process* process, std::set<unsigned int> cpus){
             process->allowed_cpus.clear();
             cpu_set_t cpu_set;
@@ -188,22 +202,22 @@ namespace migrator{
                 process->allowed_cpus.insert(cpu);
             }
         
-            int ret=sched_setaffinity(process->pid, sizeof(cpu_set_t), &cpu_set);
+            int ret=sched_setaffinity(process->tid, sizeof(cpu_set_t), &cpu_set);
             if(ret == -1){
-                std::cout<<"Error when setting process "<<process->pid<<" affinity";
+                std::cout<<"Error when setting process "<<process->tid<<" affinity"  \
+                         <<"errno "<<errno<<std::endl;
+            }else{
+                std::cout<<"INFO: set process "<<process->tid<<" to cpuset "<<cpus.size()<<std::endl;
             }
             
             return;
         }
         
-        
-        
-        
         int create_application(pid_t pid){
         
             std::string path = "/proc/"+std::to_string(pid);
             //Test /proc/pid
-            if(file_exist(path))
+            if(!file_exist(path))
             {
                 std::cout<<"pid "<<pid<<" does not exist "<<std::endl;
                 return -1;
@@ -243,28 +257,25 @@ namespace migrator{
                 applications.apps.push_back(application);
         
             }
+            std::cout<<"INFO add application "<<application.pid<<std::endl;
             return 0; 
         }
         
-        
         //false if the process finished
         bool update_process_profile(Process* process){
-            std::string path = "/proc/"+ std::to_string(process->pid)+
-                                  + "/"+ std::to_string(process->tid)+"/stat";
+            std::string path = get_proc_stat_path(process);
+
             if(!file_exist(path)){
                 return false;
             }
-            
             process->cpu_id = get_process_cpu(process);
             process->state = get_process_state(process);
-            
             process->states.push_back(process->state);
             if(process->states.size() > MAX_STATE_ARRAY){
                 process->states.erase(process->states.begin());
             }   
             return true;
         }
-        
         
         //false if the appliaction finished 
         bool update_appliation_profile(Application& application){
@@ -291,12 +302,12 @@ namespace migrator{
                     } 
                     delete *iter;
                     iter = application.processes.erase(iter);
+		    std::cout<<"INFO process "<<(*iter)->tid<<" finishes"<<std::endl;
                 }
             } 
             return true;
         }
         
-
         //If the lc process is in running state longer than thresh_ms ms
         bool lc_process_running(Process* process, unsigned int thresh_ms){
             if(!process->is_latency)
@@ -316,7 +327,6 @@ namespace migrator{
             return count >= thresh_ms ? true: false;
         }        
 
-
         //thread to inspect process cpu stats
         void thread_cpu_update(){
         
@@ -326,7 +336,7 @@ namespace migrator{
                  
                 //update application profile
                 {
-                    std::lock_guard<std::mutex> lock(applications.apps_lock); 
+                    std::lock_guard<std::mutex> lock(applications.apps_lock);
                     for(auto iter =applications.apps.begin(); iter!=applications.apps.end();){
                         if(update_appliation_profile(*iter)){
                             iter++;
@@ -340,6 +350,7 @@ namespace migrator{
                                 delete process;
                             }  
                             iter = applications.apps.erase(iter);
+			    std::cout<<"INFO application "<<iter->pid<<" finishes"<<std::endl;
                         }
                     }
                 }
@@ -381,6 +392,10 @@ namespace migrator{
         
         }
 
+        void thread_rqlat_probe(){
+
+        }
+
         void thread_user_cmd(){
             zmq::context_t context(1);
             zmq::socket_t socket(context, ZMQ_REP);
@@ -409,9 +424,10 @@ namespace migrator{
                 } 
                 std::memcpy((void *) reply.data(), "ACK", 3);
                 socket.send(reply);
+		std::cout<<"Finish cmd thread."<<std::endl;
+
             } 
 
-            std::cout<<"Finish cmd thread."<<std::endl;
         }
   
         void launch_service(){
@@ -435,13 +451,11 @@ namespace migrator{
 
     };
 
-    
-
 }
+
 int main(){
 
     migrator::Migrator migrator_service; 
     migrator_service.launch_service();
     return 0;
 }
-
